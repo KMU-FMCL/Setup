@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # APT mirror change
-
 sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak
 
 CONFIG_FILE="/etc/apt/sources.list"
@@ -18,11 +17,11 @@ case "$ARCHITECTURE" in
 esac
 
 if [ -f "$CONFIG_FILE" ]; then
-  sudo sed -i "s|http://archive.ubuntu.com|$MIRROR_SITE|g; s|http://kr.archive.ubuntu.com|$MIRROR_SITE|g; s|http://security.ubuntu.com|$MIRROR_SITE|g" /etc/apt/sources.list
+  sudo sed -i "s|http://archive.ubuntu.com|$MIRROR_SITE|g; s|http://kr.archive.ubuntu.com|$MIRROR_SITE|g; s|http://security.ubuntu.com|$MIRROR_SITE|g; s|http://ports.ubuntu.com|$MIRROR_SITE|g" /etc/apt/sources.list
 fi
 
-# Clean snap
 
+# Clean snap
 snap remove gtk-common-themes
 snap remove bare
 snap remove gnome-42-2204
@@ -70,8 +69,8 @@ sudo rm -rf /run/udev/tags/snap_snap-store_snap-store \
 	    /etc/apparmor.d/abstractions/snap_browsers \
 	    $HOME/snap
 
-# Clean junk
 
+# Clean junk
 sudo apt purge *thunderbird* \
 	       *libreoffice* \
 	       transmission* \
@@ -89,7 +88,6 @@ sudo apt autoclean
 
 
 # Develop setting
-
 sudo add-apt-repository ppa:longsleep/golang-backports
 sudo add-apt-repository ppa:daniel-milde/gdu
 sudo apt update
@@ -120,6 +118,10 @@ sudo apt install zsh \
 		 meson \
 		 curl \
 		 wget \
+		 7zip \
+		 jq \
+		 poppler-utils \
+		 iamgemagick \
 		 git \
 		 git-lfs \
 		 openssh-server \
@@ -133,7 +135,9 @@ sudo apt install zsh \
 		 python3-venv \
 		 golang-go \
 		 default-jdk \
-		 luarocks
+		 luarocks \
+		 gnome-control-center
+
 
 # gcc version change
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
@@ -142,99 +146,452 @@ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 200
 sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
 sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 200
 
+
 # Use ccache
 sudo sed -i 's|^PATH="|PATH="/usr/lib/ccache:|' /etc/environment
 
-# oh my zsh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-sed -i '4i\export PATH=$HOME/.go/bin:$HOME/.loacl/bin:$PATH\n' $HOME/.zshrc
 
+# zsh check
+if command -v zsh &> /dev/null
+then
+  # oh my zsh
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+else
+  echo "Fail. script exit"
+  exit 1
+fi
+
+
+# PATH
+if ! grep -q 'export PATH=$HOME/.go/bin:$HOME/.local/bin:$PATH' "$HOME/.zshrc"; then
+  sed -i '11i\export PATH=$HOME/.go/bin:$HOME/.loacl/bin:$PATH\n' $HOME/.zshrc
+else
+  echo "'export PATH=$HOME/.go/bin/bin:$HOME/.local/bin:$PATH' already exists in $HOME/.zshrc"
+fi
+
+
+# powerlevel10k
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k
 sed -i 's|robbyrussell|powerlevel10k/powerlevel10k|g' $HOME/.zshrc
 
+
+# zsh plugins
 git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
 git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions
 git clone https://github.com/hlissner/zsh-autopair ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autopair
 git clone https://github.com/zdharma-continuum/fast-syntax-highlighting.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/fast-syntax-highlighting
 git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
 
-sed -i '6i\fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src\n' $HOME/.zshrc
-sed -i "s/git/git zsh-autosuggestions zsh-autopair fast-syntax-highlighting zsh-history-substring-search/g" $HOME/.zshrc
+if ! grep -q 'fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src' "$HOME/.zshrc"; then
+  sed -i '13i\fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src\n' $HOME/.zshrc
+else
+  echo "'fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src' already exists in $HOME/.zshrc"
+fi
+
+if ! grep -q 'plugins=(git zsh-autosuggestions zsh-autopair fast-syntax-highlighting zsh-history-substring-search)' "$HOME/.zshrc"; then
+  sed -i "s/git/git zsh-autosuggestions zsh-autopair fast-syntax-highlighting zsh-history-substring-search/g" $HOME/.zshrc
+else
+  echo "'plugins=(git zsh-autosuggestions zsh-autopair fast-syntax-highlighting zsh-history-substring-search)' already exists in $HOME/.zshrc"
+fi
+
 
 # rustup 
-curl https://sh.rustup.rs -sSf | sh && exec $SHELL
+if ! command -v rustup &> /dev/null; then
+  echo "Installation rustup"
+  curl https://sh.rustup.rs -sSf | sh
+  echo "Installation is complete"
 
-mkdir -p $HOME/.zfunc
-sed -i '6i\fpath+=$HOME/.zfunc' $HOME/.zshrc
+  if ! command -v rustup &> /dev/null; then
+    . "$HOME/.cargo/env"
 
-rustup update stable
-rustup completions zsh > $HOME/.zfunc/_rustup
-rustup completions zsh cargo > $HOME/.zfunc/_cargo
+    echo "rustup version check"
+    rustup --version
 
-cargo +stable install --locked cargo-quickinstall
-cargo +stable quickinstall cargo-binstall
-cargo binstall tealdeer choose du-dust eza fd-find procs ripgrep sd gping
-cargo binstall --locked bottom bat broot hyperfine tree-sitter-cli zellij
+    echo "cargo version check"
+    cargo --version
+  
+    echo "rustup update"
+    rustup update stable
+  
+    zfunc_dir="$HOME/.zfunc"
+
+    if [ ! -d "$zfunc_dir" ]; then
+      mkdir -p "$zfunc_dir"
+    else
+      echo "Directory already exists: $HOME/.zfunc"
+    fi
+
+    if ! grep -q 'fpath+=$HOME/.zfunc' "$HOME/.zshrc"; then
+      sed -i '13i\fpath+=$HOME/.zfunc' $HOME/.zshrc
+    else
+      echo "'fpath+=$HOME/.zfunc' already exists in $HOME/.zshrc"
+    fi
+
+    if [ ! -f "$zfunc_dir/_rustup" ]; then
+      rustup completions zsh > "$zfunc_dir/_rustup"
+      if [ $? -ne 0 ]; then
+        echo "Error: Failed to generate zsh completions for rustup"
+        exit 1
+      else
+        echo "Created $zfunc_dir/_rustup"
+      fi
+    fi
+
+    if [ ! -f "$zfunc_dir/_cargo" ]; then
+      rustup completions zsh cargo > "$zfunc_dir/_cargo"
+      if [ $? -ne 0 ]; then
+        echo "Error: Failed to generate zsh completions for cargo"
+        exit 1
+      else
+        echo "Created $zfunc_dir/_cargo"
+      fi
+    fi
+
+    packages_to_install=(
+      cargo-quickinstall
+      cargo-binstall
+      tealdeer
+      choose
+      du-dust
+      eza
+      fd-find
+      procs
+      ripgrep
+      sd
+      gping
+      bottom
+      bat
+      broot
+      hyperfine
+      tree-sitter-cli
+      zellij
+    )
+
+    installed_packages=$(cargo install --list)
+
+    if ! echo "$installed_packages" | grep -q "cargo-quickinstall"; then
+      echo "Installing cargo-quickinstall"
+      cargo +stable install --locked cargo-quickinstall
+    fi
+
+    if ! echo "$installed_packages" | grep -q "cargo-binstall"; then
+      echo "Installing cargo-binstall"
+      cargo +stable install --locked cargo-binstall
+    fi
+
+    basic_packages=(
+      tealdeer
+      choose
+      du-dust
+      eza
+      fd-find
+      procs
+      ripgrep
+      sd
+      gping
+    )
+
+    locked_packages=(
+      bottom
+      bat
+      broot
+      hyperfine
+      tree-sitter-cli
+      zellij
+    )
+
+    for pkg in "${basic_packages[@]}"; do
+      if ! echo "$installed_packages" | grep -q "$pkg"; then
+        echo "Installing $pkg with cargo binstall"
+        cargo binstall -y "$pkg"
+        if [ $? -eq 0 ]; then
+          echo "Successfully installed $pkg"
+        else
+          echo "Error installing $pkg"
+        fi
+      else
+        echo "$pkg is already installed"
+      fi
+    done
+
+    for pkg in "${locked_packages[@]}"; do
+      if ! echo "$installed_packages" | grep -q "pkg"; then
+        echo "Installing $pkg with cargo binstall --locked"
+        cargo binstall --locked -y "$pkg"
+        if [ $? -eq 0 ]; then
+          echo "Successfully installed $pkg"
+        else
+          echo "Error installing $pkg"
+        fi
+      else
+        echo "$pkg is already installed"
+      fi
+    done
+
+    # tealdeer
+    if command -v tldr > /dev/null 2>&1; then
+      tldr -u
+      if [ ! -f "$zfunc_dir/_tealdeer" ]; then
+        curl -L -o $HOME/.zfunc/_tealdeer https://github.com/tealdeer-rs/tealdeer/raw/refs/heads/main/completion/zsh_tealdeer
+        if [ $? -ne 0 ]; then
+          echo "Failed to download tealdeer shell completion"
+          exit 1
+        else
+          echo "Successfully $zfunc_dir/_tealdeer"
+        fi
+      fi
+    else
+      echo "Error: tealdeer is not installed"
+      exit 1
+    fi
+
+    # bat
+    if command -v bat > /dev/null 2>&1; then
+      bat --config-file
+      bat --generate-config-file
+      sed -i 's|#--theme="TwoDark"|--theme="ansi"|g' $HOME/.config/bat/config
+    else
+      echo "Error: bat is not installed"
+      exit 1
+    fi
+
+    # broot
+    if command -v broot > /dev/null 2>&1; then
+      echo "y" | broot
+
+      file="$HOME/.zshrc"
+      search_string="source $HOME/.config/broot/launch/bash/br"
+
+      if [ ! -f "$file" ]; then
+        echo "Error: $file not found"
+        exit 1
+      fi
+
+      line_number=$(grep -n "$search_string" "$file" | cut -d: -f1)
+
+      if [ -n "$line_number" ]; then
+        echo "Found the line at: $line_number"
+
+        extracted_line=$(sed "${line_number}q;d" "$file")
+
+        sed -i "${line_number}d" "$file"
+
+        sed -i '95i\'"$extracted_line\n" "$file"
+
+        sed -i '$d' "$file"
+      else
+        echo "The line '$search_string' was not found in $file"
+      fi
+    else
+      echo "Error: broot is not installed"
+      exit 1
+    fi
+  
+    # dust 
+    if command -v dust > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_dust" ]; then
+        curl -L -o $HOME/.zfunc/_dust https://github.com/bootandy/dust/raw/refs/heads/master/completions/_dust
+        if [ $? -ne 0 ]; then
+          echo "Failed to download du-dust shell completion"
+          exit 1
+        else
+          echo "Successfully $zfunc_dir/_dust"
+        fi
+      fi
+    else
+      echo "Error: du-dust is not installed"
+      exit 1
+    fi
+
+    # eza
+    if command -v eza > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_eza" ]; then
+        curl -L -o $HOME/.zfunc/_eza https://github.com/eza-community/eza/raw/refs/heads/main/completions/zsh/_eza
+        if [ $? -ne 0 ]; then
+          echo "Failed to download eza shell completion"
+          exit 1
+        else
+          echo "Successfully $zfunc_dir/_dust"
+        fi
+      fi
+
+      if ! grep -q "export EZA_ICONS_AUTO=auto" "$HOME/.zshrc"; then
+        sed -i "102i\export EZA_ICONS_AUTO=auto\n" $HOME/.zshrc
+      else
+        echo "export EZA_ICONS_AUTO=auto already exists in $HOME/.zshrc"
+      fi
+
+      if ! grep -q "alias e='eza'" "$HOME/.zshrc"; then
+        sed -i "129i\alias e='eza'\n" $HOME/.zshrc
+      else
+        echo "alias e='eza' already exists in $HOME/.zshrc"
+      fi
+    else
+      echo "Error: eza is not installed"
+      exit 1
+    fi
+
+    # fd
+    if command -v fd > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_fd" ]; then
+        curl -L -o $HOME/.zfunc/_fd https://github.com/sharkdp/fd/raw/refs/heads/master/contrib/completion/_fd
+        if [ $? -ne 0 ]; then
+          echo "Failed to download fd-find shell completion"
+          exit 1
+        else
+          echo "Successfully $zfunc_dir/_fd"
+        fi
+      fi
+    else
+      echo "Error: fd-find is not installed"
+      exit 1
+    fi
+
+    # procs
+    if command -v procs > /dev/null 2>&1; then
+      if ! grep -q "source <(procs --gen-completion-out zsh)" "$HOME/.zshrc"; then
+        sed -i "97i\source <(procs --gen-completion-out zsh)\n" $HOME/.zshrc
+      else
+        echo "source <(procs --gen-completion-out zsh) already exists in $HOME/.zshrc"
+      fi
+    else
+      echo "Error: procs is not installed"
+      exit 1
+    fi
+
+    # ripgrep
+    if command -v rg > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_rg" ]; then
+        rg --generate complete-zsh > $HOME/.zfunc/_rg
+        if [ $? -ne 0 ]; then
+          echo "Error: Failed to generate zsh completions for ripgrep"
+          exit 1
+        else
+          echo "Created $zfunc_dir/_rg"
+        fi
+      fi
+    else
+      echo "Error: ripgrep is not installed"
+      exit 1
+    fi
+
+    # sd
+    if command -v sd > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_sd" ]; then
+        curl -L -o $HOME/.zfunc/_sd https://github.com/chmln/sd/raw/refs/heads/master/gen/completions/_sd
+        if [ $? -ne 0 ]; then
+          echo "Failed to download sd shell completion"
+          exit 1
+        else
+          echo "Successfully $zfunc_dir/_sd"
+        fi
+      fi
+    else
+      echo "Error: sd is not installed"
+      exit 1
+    fi
+
+    # zellij
+    if command -v zellij > /dev/null 2>&1; then
+      if [ ! -f "$zfunc_dir/_zellij" ]; then
+        zellij setup --generate-completion zsh > $HOME/.zfunc/_zellij
+        if [ $? -ne 0 ]; then
+          echo "Error: Failed to generate zsh completion for zellij"
+          exit 1
+        else
+          echo "Created $zfunc_dir/_zellij"
+        fi
+      fi
+    else
+      echo "Error: zellij is not installed"
+      exit 1
+    fi
+
+  else
+    echo "The command cannot be executed because rustup is not installed"
+    exit 1
+  fi
+
+else
+  echo "Already have rustup installed."
+fi
+
 
 # fzf
-git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
-$HOME/.fzf/install
+if ! command -v fzf &> /dev/null; then
+  echo "Installation fzf"
+  git clone --depth 1 https://github.com/junegunn/fzf.git $HOME/.fzf
 
-file="$HOME/.zshrc"
-last_line=$(wc -l < "$file")
+  (
+    echo "y"
+    echo "y"
+    echo "y"
+  ) | $HOME/.fzf/install --all
+  echo "Installation is complete"
 
-if [[ "$last_line" -gt 83 ]]; then
-  printf '%s\n' "${last_line}m83" '84a' '' '.' w q | ed -s "$file"
+  file="$HOME/.zshrc"
+  search_string='[ -f $HOME/.fzf.zsh ] && source ~/.fzf.zsh'
+
+  if [ ! -f "$file" ]; then
+    echo "Error: $file not found"
+    exit 1
+  fi
+
+  line_number=$(grep -n "$search_string" "$file" | cut -d: -f1)
+
+  if [ -n "$line_number" ]; then
+    echo "Found the line at: $line_number"
+
+    extracted_line=$(sed "${line_number}q;d" "$file")
+
+    sed -i "${line_number}d" "$file"
+
+    sed -i '91i\'"$extracted_line\n" "$file"
+
+    sed -i '$d' "$file"
+  else
+    echo "The line '$search_string' was not found in $file"
+  fi
+
+  if ! grep -q 'export FZF_DEFAULT_COMMAND="fd --type f"' "$HOME/.zshrc"; then
+    sed -i "95i\export FZF_DEFAULT_COMMAND='fd --type f'\n" $HOME/.zshrc
+  else
+    echo "export FZF_DEFAULT_COMMAND='fd --type f' already exists in $HOME/.zshrc"
+  fi
+
+  if ! grep -q 'export FZF_DEFAULT_OPTS="--layout=reverse --inline-info"' "$HOME/.zshrc"; then
+    sed -i '96i\export FZF_DEFAULT_OPTS="--layout=reverse --inline-info"' $HOME/.zshrc
+  else
+    echo "export FZF_DEFAULT_OPTS='--layout=reverse --inline-info' already exists in $HOME/.zshrc"
+  fi
+
+else
+  echo "Already have rustup installed."
 fi
 
-sed -i "88i\export FZF_DEFAULT_COMMAND='fd --type f'" $HOME/.zshrc
-sed -i '89i\export FZF_DEFAULT_OPTS="--layout=reverse --inline-info"\n' $HOME/.zshrc
 
 # zoxide
-curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
-sed -i '86i\eval "$(zoxide init zsh)"\n' $HOME/.zshrc
+if ! command -v zoxide &> /dev/null; then
+  echo "Installation zoxide"
 
-# tealdeer 
-tldr -u
-curl -L -o $HOME/.zfunc/_tealdeer https://github.com/tealdeer-rs/tealdeer/raw/refs/heads/main/completion/zsh_tealdeer
+  curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+  if [ $? -ne 0 ]; then
+    echo "Failed to download zoxide install script"
+    exit 1
+  fi
 
-# bat 
-bat --config-file
-bat --generate-config-file
-sed -i 's|#--theme="TwoDark"|--theme="ansi"|g' $HOME/.config/bat/config
+  echo "Installation is complete"
 
-# broot
-broot
+  if ! grep -q 'eval "$(zoxide init zsh)"' "$HOME/.zshrc"; then
+    sed -i '93i\eval "$(zoxide init zsh)"\n' $HOME/.zshrc
+  else
+    echo 'eval "$(zoxide init zsh)" already exists in $HOME/.zshrc'
+  fi
 
-file="$HOME/.zshrc"
-last_line=$(wc -l < "$file")
-
-if [[ "$last_line" -gt 87 ]]; then
-  printf '%s\n' "${last_line}m87" '88a' '' '.' w q | ed -s "$file"
+else
+  echo "Already have zoxide installed."
 fi
 
-# dust 
-curl -L -o $HOME/.zfunc/_dust https://github.com/bootandy/dust/raw/refs/heads/master/completions/_dust
-
-# eza
-curl -L -o $HOME/.zfunc/_eza https://github.com/eza-community/eza/raw/refs/heads/main/completions/zsh/_eza
-sed -i '95i\export EZA_ICONS_AUTO=auto\n' $HOME/.zshrc
-echo -e "\nalias e='eza'" >> $HOME/.zshrc
-
-# fd
-curl -L -o $HOME/.zfunc/_fd https://github.com/sharkdp/fd/raw/refs/heads/master/contrib/completion/_fd
-
-# procs
-sed -i '90i\source <(procs --gen-completion-out zsh)\n' $HOME/.zshrc
-
-# ripgrep
-rg --generate complete-zsh > $HOME/.zfunc/_rg
-
-# sd
-curl -L -o $HOME/.zfunc/_sd https://github.com/chmln/sd/raw/refs/heads/master/gen/completions/_sd
-
-# zellij
-zellij setup --generate-completion zsh > $HOME/.zfunc/_zellij
 
 # go 
 go env -w GOPATH="$HOME/.go"
@@ -243,15 +600,65 @@ go env -w CGO_CXXFLAGS='-O3 -g'
 go env -w CGO_FFLAGS='-O3 -g'
 go env -w CGO_LDFLAGS='-O3 -g'
 
-go install github.com/cheat/cheat/cmd/cheat@latest
-go install github.com/rs/curlie@latest
-go install github.com/jesseduffield/lazygit@latest
+# cheat 
+if ! command -v cheat &> /dev/null; then
+  echo "Installation cheat"
+  go install github.com/cheat/cheat/cmd/cheat@latest
+  if [ $? -eq 0 ]; then
+    echo "Installation is Complete"
+  else
+    echo "Failed to download cheat"
+  fi
+
+  if command -v cheat &> /dev/null; then
+    if [ ! -f "$HOME/.zfunc/_cheat" ]; then
+      https://github.com/cheat/cheat/raw/refs/heads/master/scripts/cheat.zsh
+      if [ $? -ne 0 ]; then
+        echo "Failed to download sd shell completion"
+        exit 1
+      else
+        echo "Successfully $zfunc_dir/_sd"
+      fi
+    fi
+  else
+    echo "Error: cheat is not installed"
+    exit 1
+  fi
+else
+  echo "Already have cheat installed"
+fi
+
+if ! command -v curlie &> /dev/null; then
+  echo "Installation curlie"
+  go install github.com/rs/curlie@latest
+  if [ $? -eq 0 ]; then
+    echo "Installation is Complete"
+  else
+    echo "Failed to download curlie"
+  fi
+else
+  echo "Already have curlie installed"
+fi
+
+if ! command -v lazygit &> /dev/null; then
+  echo "Installation lazygit"
+  go install github.com/jesseduffield/lazygit@latest
+  if [ $? -eq 0 ]; then
+    echo "Installation is Complete"
+  else
+    echo "Failed to download lazygit"
+  fi
+else
+  echo "Already have lazygit installed"
+fi
+
 
 # httpie
-curl -SsL https://packages.httpie.io/deb/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/httpie.gpg
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/httpie.gpg] https://packages.httpie.io/deb ./" | sudo tee /etc/apt/sources.list.d/httpie.list > /dev/null
-sudo apt update
-sudo apt install httpie
+# curl -SsL https://packages.httpie.io/deb/KEY.gpg | sudo gpg --dearmor -o /usr/share/keyrings/httpie.gpg
+# echo "deb [arch=amd64 signed-by=/usr/share/keyrings/httpie.gpg] https://packages.httpie.io/deb ./" | sudo tee /etc/apt/sources.list.d/httpie.list > /dev/null
+# sudo apt update
+# sudo apt install httpie
+
 
 # node
 git clone -b v5.3.22 --recursive --depth=1 https://github.com/nodenv/node-build.git $HOME/.node-build
@@ -268,6 +675,7 @@ npm install -g neovim
 
 sed -i '92i\source /usr/local/share/chnode/chnode.sh' $HOME/.zshrc
 sed -i '93i\chnode node-22.12.0\n' $HOME/.zshrc
+
 
 # ruby
 git clone -b v0.9.4 --recursive --depth=1 https://github.com/postmodern/ruby-install.git $HOME/.ruby-install
@@ -293,6 +701,7 @@ sed -i '95i\source /usr/local/share/chruby/chruby.sh' $HOME/.zshrc
 sed -i '96i\source /usr/local/share/chruby/auto.sh\n' $HOME/.zshrc
 
 gem install neovim
+
 
 # neovim
 git clone -b v0.10.1 --recursive --depth=1 https://github.com/neovim/neovim.git $HOME/.neovim
